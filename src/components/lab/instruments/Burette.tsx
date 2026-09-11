@@ -3,11 +3,12 @@ import type { FlowMode } from "@/types";
 
 /* ══════════════════════════════════════════════════════════════════════════
    Burette — 50 mL class A, local coordinates
-   tube: x 0…26, y 0…310   (6.2 units per mL)
-   stopcock: y 310…340      tip: y 340…372
+   tube: x 0…26, y 0…310      (6.2 units per mL, 0.00 mL at the TOP)
+   stopcock: y 310…340         tip: y 340…372
    ══════════════════════════════════════════════════════════════════════════*/
 
 const PX_PER_ML = 6.2;
+const CAPACITY_ML = 50;
 
 const HANDLE_ANGLE: Record<FlowMode, number> = {
   closed: 0,
@@ -31,19 +32,20 @@ export function BuretteTube({
   focus?: boolean;
   highlightReading?: number | null;
 }) {
-  const yTop = Math.max(0, level * PX_PER_ML);
+  /* the liquid surface: 0 mL of liquid → y 310 (bottom), 50 mL → y 0 (top),
+     so the column genuinely rises from the bottom while filling            */
+  const yTop = Math.max(0, (CAPACITY_ML - level) * PX_PER_ML);
   const open = stopcock !== "closed";
 
   return (
     <g className={focus ? "focus-halo" : undefined}>
-      {/* graduations */}
+      {/* graduations — 0.00 mL at the top, 50.00 mL at the bottom */}
       <g>
         {Array.from({ length: 51 }).map((_, v) => {
           const y = v * PX_PER_ML;
           const major = v % 10 === 0;
           const mid = v % 5 === 0;
           const len = major ? 13 : mid ? 9 : 6;
-          if (v % 1 !== 0) return null;
           return (
             <g key={v}>
               <path
@@ -73,16 +75,24 @@ export function BuretteTube({
       {/* tube */}
       <rect x="0" y="0" width="26" height="312" rx="6" fill="url(#glassBody)" stroke="url(#glassEdge)" strokeWidth="1.8" />
 
-      {/* liquid column */}
+      {/* liquid column — rises from the bottom as the burette is filled */}
       {level > 0.05 && (
         <g>
           <clipPath id="buretteClip">
             <rect x="1" y="1" width="24" height="310" rx="5" />
           </clipPath>
           <g clipPath="url(#buretteClip)">
-            <rect x="1" y={yTop} width="24" height={Math.max(0, 310 - yTop)} fill={color} opacity="0.92" />
-            <ellipse cx="13" cy={yTop} rx="12" ry="3" fill="#ffffff" opacity="0.32" />
-            <ellipse cx="13" cy={yTop} rx="12" ry="2.4" fill="none" stroke="#0b1420" strokeOpacity="0.35" strokeWidth="1" />
+            <rect
+              x="1"
+              y={yTop}
+              width="24"
+              height={Math.max(0, 310 - yTop)}
+              fill={color}
+              opacity="0.95"
+            />
+            {/* meniscus */}
+            <ellipse cx="13" cy={yTop} rx="12" ry="3" fill="#ffffff" opacity="0.45" />
+            <ellipse cx="13" cy={yTop + 1} rx="11" ry="2.2" fill="none" stroke="#0b1420" strokeOpacity="0.3" strokeWidth="1" />
             <rect x="2" y={yTop} width="4" height={Math.max(0, 310 - yTop)} fill="#ffffff" opacity="0.16" />
           </g>
         </g>
@@ -90,11 +100,7 @@ export function BuretteTube({
 
       {/* eye-level guide for readings */}
       {typeof highlightReading === "number" && (
-        <motion.g
-          initial={{ opacity: 0, x: -6 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.4 }}
-        >
+        <motion.g initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.4 }}>
           <path
             d={`M-46 ${highlightReading * PX_PER_ML} H54`}
             stroke="#ffd23f"
@@ -175,20 +181,18 @@ export function Funnel({
       transition={{ duration: 0.4 }}
     >
       <path d="M0 0 L120 0 L70 62 L70 96 L50 96 L50 62 Z" fill="url(#glassBody)" stroke="url(#glassEdge)" strokeWidth="1.8" />
-      {color && (
-        <path d="M6 4 L114 4 L72 56 L48 56 Z" fill={color} opacity={filling ? 0.75 : 0.35} />
-      )}
+      {color && <path d="M4 3 L116 3 L72 58 L48 58 Z" fill={color} opacity={filling ? 0.9 : 0.4} />}
       <path d="M8 6 L8 14 L52 56" stroke="#ffffff" strokeOpacity="0.25" strokeWidth="2" fill="none" />
       {filling && (
         <motion.rect
           x="55"
-          y="98"
+          y="96"
           width="10"
-          height="26"
+          height="30"
           rx="4"
           fill={color}
-          animate={{ opacity: [0.5, 1, 0.5], y: [98, 104, 98] }}
-          transition={{ duration: 0.5, repeat: Infinity }}
+          animate={{ opacity: [0.6, 1, 0.6] }}
+          transition={{ duration: 0.45, repeat: Infinity }}
         />
       )}
     </motion.g>
@@ -221,132 +225,148 @@ export function TitrantDrop({
       onAnimationComplete={onComplete}
     >
       <ellipse cx="0" cy="0" rx="4.2" ry="5.4" fill={color} />
-      <ellipse cx="-1.2" cy="-1.6" rx="1.4" ry="2" fill="#ffffff" opacity="0.5" />
+      <ellipse cx="-1.2" cy="-1.6" rx="1.4" ry="2" fill="#ffffff" opacity="0.55" />
     </motion.g>
   );
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Focused burette reading view — large, with movable eye-level guide
-   viewBox 320 × 560
+   Focused burette reading view.
+   A magnified window that always centres on the meniscus, with a zoom
+   control (1×, 2×, 4×) so the exact reading can be read off the scale.
+   viewBox 340 × 560
    ══════════════════════════════════════════════════════════════════════════*/
+
+const CY = 262; // the meniscus is always drawn at this height
+const TUBE_L = 156;
+const TUBE_R = 204;
 
 export function BuretteScale({
   reading,
   color,
-  guide,
-  onGuideChange,
+  zoom = 1,
 }: {
   reading: number;
   color: string;
-  guide: number;
-  onGuideChange?: (v: number) => void;
+  zoom?: number;
 }) {
-  const yTop = (50 - reading) * PX_PER_ML;
-  const guideY = guide * PX_PER_ML;
-  const atMeniscus = Math.abs(guide - reading) <= 0.03;
+  const Z = 44 * zoom;
+  const yOf = (v: number) => CY + (v - reading) * Z;
+  const span = 214 / Z; // half of the visible window, in mL
+  const first = Math.max(0, Math.floor((reading - span) * 20) / 20);
+  const last = Math.min(CAPACITY_ML, Math.ceil((reading + span) * 20) / 20);
+
+  const ticks: number[] = [];
+  const step = zoom >= 2 ? 0.05 : 0.1;
+  for (let v = first; v <= last + 1e-6; v = Math.round((v + step) * 100) / 100) ticks.push(Math.round(v * 100) / 100);
+
+  const zeroY = yOf(0);
+  const cx = (TUBE_L + TUBE_R) / 2;
 
   return (
     <g>
-      {/* frame */}
-      <rect x="0" y="0" width="320" height="560" rx="18" fill="rgba(8,13,24,0.6)" stroke="rgba(255,255,255,0.08)" />
-
-      <g transform="translate(96,10)">
-        {Array.from({ length: 51 }).map((_, v) => {
-          const y = v * PX_PER_ML;
-          const major = v % 10 === 0;
-          const mid = v % 5 === 0;
-          const len = major ? 22 : mid ? 15 : 10;
+      {/* ── magnified graduation scale ─────────────────────────────────*/}
+      <g>
+        {ticks.map((v) => {
+          const y = yOf(v);
+          if (y < 26 || y > 504) return null;
+          const major = Math.abs(v % 5) < 1e-6;
+          const whole = Math.abs(v % 1) < 1e-6;
+          const half = Math.abs(v % 0.5) < 1e-6;
+          const tenth = Math.abs(v % 0.1) < 1e-6;
+          const len = major ? 34 : whole ? 26 : half ? 18 : tenth ? 11 : 6;
           return (
             <g key={v}>
               <path
-                d={`M26 ${y} h${len}`}
-                stroke={major ? "#eaf1fb" : "#9fb0c8"}
-                strokeOpacity={major ? 1 : 0.65}
-                strokeWidth={major ? 1.6 : 1}
+                d={`M${TUBE_L} ${y} h${-len}`}
+                stroke={major ? "#f0f5fc" : whole ? "#cdd9ea" : tenth ? "#8b9cb6" : "#6d7e96"}
+                strokeWidth={major ? 1.8 : whole ? 1.3 : 1}
+                strokeOpacity={major || whole ? 1 : 0.85}
               />
-              {major && (
-                <text x="56" y={y + 4} fill="#cdd9ea" fontSize="13" fontFamily="JetBrains Mono, monospace">
-                  {v}
+              {whole && (
+                <text
+                  x={TUBE_L - len - 8}
+                  y={y + 4.6}
+                  textAnchor="end"
+                  fill={major ? "#f0f5fc" : "#cdd9ea"}
+                  fontSize="13.5"
+                  fontFamily="JetBrains Mono, monospace"
+                >
+                  {v.toFixed(0)}
                 </text>
               )}
             </g>
           );
         })}
-
-        {/* tube */}
-        <rect x="0" y="0" width="26" height="312" rx="6" fill="url(#glassBody)" stroke="url(#glassEdge)" strokeWidth="2" />
-        <clipPath id="readerClip">
-          <rect x="1" y="1" width="24" height="310" rx="5" />
-        </clipPath>
-        <g clipPath="url(#readerClip)">
-          <rect x="1" y={yTop} width="24" height={Math.max(0, 312 - yTop)} fill={color} opacity="0.93" />
-          <ellipse cx="13" cy={yTop} rx="12" ry="3.6" fill="#ffffff" opacity="0.3" />
-          <ellipse cx="13" cy={yTop + 1.6} rx="11" ry="2.6" fill="none" stroke="#0a1220" strokeOpacity="0.4" strokeWidth="1.2" />
-          <rect x="2" y={yTop} width="4" height={Math.max(0, 312 - yTop)} fill="#ffffff" opacity="0.18" />
-        </g>
-        <rect x="3" y="5" width="3.5" height="300" rx="2" fill="#ffffff" opacity="0.2" />
-
-        {/* meniscus marker */}
-        <g>
-          <path d={`M-30 ${yTop} H44`} stroke="#ffd23f" strokeWidth="1.6" strokeDasharray="4 4" opacity="0.9" />
-          <text x="-28" y={yTop - 8} fill="#ffd23f" fontSize="11" fontFamily="Inter, sans-serif">
-            meniscus
-          </text>
-        </g>
+        <path d={`M${TUBE_L} 30 V500`} stroke="#9fb0c8" strokeOpacity="0.55" strokeWidth="1.2" />
       </g>
 
-      {/* draggable eye-level guide */}
-      <g
-        onPointerDown={(e) => {
-          (e.target as Element).setPointerCapture?.(e.pointerId);
-        }}
-        onPointerMove={(e) => {
-          if (e.buttons !== 1 || !onGuideChange) return;
-          const svg = (e.currentTarget as SVGElement).ownerSVGElement;
-          if (!svg) return;
-          const pt = svg.createSVGPoint();
-          pt.x = e.clientX;
-          pt.y = e.clientY;
-          const ctm = svg.getScreenCTM();
-          if (!ctm) return;
-          const local = pt.matrixTransform(ctm.inverse());
-          const v = Math.max(0, Math.min(50, (local.y - 10) / PX_PER_ML));
-          onGuideChange(Math.round(v * 20) / 20);
-        }}
-        role="slider"
-        aria-label="Eye level guide"
-        aria-valuenow={Math.round(guide * 100) / 100}
-        aria-valuemin={0}
-        aria-valuemax={50}
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (!onGuideChange) return;
-          if (e.key === "ArrowUp" || e.key === "ArrowRight") {
-            e.preventDefault();
-            onGuideChange(Math.max(0, guide - 0.05));
-          }
-          if (e.key === "ArrowDown" || e.key === "ArrowLeft") {
-            e.preventDefault();
-            onGuideChange(Math.min(50, guide + 0.05));
-          }
-        }}
-        style={{ cursor: "ns-resize" }}
-      >
-        <rect x="24" y={guideY + 10 - 12} width="272" height="24" rx="12" fill={atMeniscus ? "rgba(53,214,154,0.16)" : "rgba(92,116,244,0.14)"} stroke={atMeniscus ? "#35d69a" : "#8098ff"} strokeWidth="1.4" />
-        <path d={`M24 ${guideY + 10} H296`} stroke={atMeniscus ? "#35d69a" : "#8098ff"} strokeWidth="1.6" />
-        <circle cx="288" cy={guideY + 10} r="7" fill={atMeniscus ? "#35d69a" : "#8098ff"} />
-        <path d={`M285 ${guideY + 7} l6 6 M291 ${guideY + 7} l-6 6`} stroke="#04070e" strokeWidth="1.6" />
-        <text x="34" y={guideY + 5} fill={atMeniscus ? "#8ff0c6" : "#cdd8ff"} fontSize="11.5" fontFamily="Inter, sans-serif">
-          eye level — {guide.toFixed(2)} mL
+      {/* ── glass tube ─────────────────────────────────────────────────*/}
+      <rect x={TUBE_L} y="30" width={TUBE_R - TUBE_L} height="470" rx="8" fill="url(#glassBody)" stroke="url(#glassEdge)" strokeWidth="2" />
+      <clipPath id="readerTubeClip">
+        <rect x={TUBE_L + 1} y="31" width={TUBE_R - TUBE_L - 2} height="468" rx="7" />
+      </clipPath>
+      <g clipPath="url(#readerTubeClip)">
+        {/* liquid below the meniscus */}
+        <rect x={TUBE_L} y={CY} width={TUBE_R - TUBE_L} height={500 - CY} fill={color} opacity="0.95" />
+        <rect x={TUBE_L + 3} y={CY} width="5" height={500 - CY} fill="#ffffff" opacity="0.2" />
+        {/* ungraduated space above the zero mark */}
+        {reading < span && zeroY > 34 && (
+          <g>
+            <rect x={TUBE_L + 1} y="31" width={TUBE_R - TUBE_L - 2} height={zeroY - 32} fill="#0a1220" opacity="0.35" />
+            <text
+              x={cx}
+              y={Math.max(56, zeroY - 16)}
+              textAnchor="middle"
+              fill="#8b9cb6"
+              fontSize="10"
+              fontFamily="Inter, sans-serif"
+              transform={`rotate(-90 ${cx} ${Math.max(56, zeroY - 16)})`}
+            >
+              above the zero mark
+            </text>
+          </g>
+        )}
+        {/* the meniscus — a concave curve whose lowest point is on the centre line */}
+        <path
+          d={`M${TUBE_L + 1} ${CY - 11} Q${cx} ${CY + 11} ${TUBE_R - 1} ${CY - 11}`}
+          fill="none"
+          stroke="#ffffff"
+          strokeOpacity="0.9"
+          strokeWidth="3"
+          strokeLinecap="round"
+        />
+        <ellipse cx={cx} cy={CY} rx={(TUBE_R - TUBE_L) / 2 - 2} ry="4" fill="#ffffff" opacity="0.25" />
+      </g>
+
+      {/* ── reading line through the bottom of the meniscus ────────────*/}
+      <g>
+        <path d={`M14 ${CY} H326`} stroke="#ffd23f" strokeWidth="1.7" strokeDasharray="6 5" opacity="0.95" />
+        <circle cx={cx} cy={CY} r="4.5" fill="#ffd23f" />
+        <path d={`M14 ${CY} l0 -7 l0 14`} stroke="#ffd23f" strokeWidth="1.8" />
+        <text x="14" y={CY - 14} fill="#ffd23f" fontSize="11.5" fontWeight="600" fontFamily="Inter, sans-serif">
+          bottom of the meniscus
+        </text>
+        <text x="326" y={CY - 14} textAnchor="end" fill="#ffd23f" fontSize="11.5" fontFamily="Inter, sans-serif">
+          read at eye level
         </text>
       </g>
 
-      <text x="160" y="368" textAnchor="middle" fill="#8d9db6" fontSize="11.5" fontFamily="Inter, sans-serif">
-        Read the bottom of the meniscus, at eye level
+      {/* eye-level sight */}
+      <g transform="translate(300,470)">
+        <circle cx="0" cy="0" r="12" fill="rgba(128,152,255,0.14)" stroke="#8098ff" strokeWidth="1.2" />
+        <ellipse cx="0" cy="0" rx="7" ry="4.6" fill="none" stroke="#a8b9ff" strokeWidth="1.4" />
+        <circle cx="0" cy="0" r="2" fill="#a8b9ff" />
+      </g>
+      <text x="300" y="498" textAnchor="middle" fill="#8b9cb6" fontSize="10" fontFamily="Inter, sans-serif">
+        eye level
       </text>
-      <text x="160" y="392" textAnchor="middle" fill="#5f7290" fontSize="10.5" fontFamily="Inter, sans-serif">
-        Drag the guide (or use ↑ ↓) to align with the meniscus
+
+      <text x="14" y="524" fill="#8d9db6" fontSize="11" fontFamily="Inter, sans-serif">
+        {zoom >= 2 ? "Fine graduations 0.05 mL — read to 0.01 mL." : "Smallest graduation 0.1 mL — zoom in to read to 0.01 mL."}
+      </text>
+      <text x="14" y="542" fill="#5f7290" fontSize="10.5" fontFamily="Inter, sans-serif">
+        Zoom ×{zoom} · the dashed line marks the lowest point of the meniscus.
       </text>
     </g>
   );
